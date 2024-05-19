@@ -34,10 +34,11 @@ extern "C" {
 //#define BOARD_TH05D		24 // TH05_V1.3 https://github.com/pvvx/THB2
 //#define BOARD_TH05F		25 // TH05Y_V1.2 https://github.com/pvvx/THB2
 //#define BOARD_THB3		26 // https://github.com/pvvx/THB2
+#define DEVICE_ET301		27 // ERICKHILL ET-301
 
 
 #ifndef DEVICE_TYPE
-#define DEVICE_TYPE			DEVICE_TH03Z // Use TS0201 or DEVICE_TH03Z only
+#define DEVICE_TYPE			DEVICE_ET301
 #endif
 
 // supported services by the device (bits)
@@ -91,7 +92,7 @@ extern "C" {
 #define USE_DEVICE_INFO_CHR_UUID 	1 // = 1 enable Device Information Characteristics
 #define USE_FLASH_SERIAL_UID		1 // =1 Set my_SerialStr "$SOC_ID_Rev-$FLASH_JEDEC-$FLASH_UID"
 
-#define UART_PRINT_DEBUG_ENABLE		0 // =1 use u_printf() (PA7/SWS), source: SDK/components/application/print/u_printf.c
+#define UART_PRINT_DEBUG_ENABLE		1 // =1 use u_printf() (PA7/SWS), source: SDK/components/application/print/u_printf.c
 
 #define ZIGBEE_TUYA_OTA 	1
 
@@ -169,17 +170,53 @@ extern "C" {
 #define PB4_FUNC			AS_GPIO
 #define PULL_WAKEUP_SRC_PB4	PM_PIN_PULLDOWN_100K
 
+#elif DEVICE_TYPE == DEVICE_ET301
+
+// GPIO_PB1 - TX
+// GPIO_PB7 - RX
+// GPIO_PD2 - KEY
+// GPIO_PC0 - SDA
+// GPIO_PC1 - SCL
+// GPIO_PC3 - LED
+
+#define SHL_ADC_VBAT	1  // "B0P" in adc.h
+#define GPIO_VBAT	GPIO_PB0 // missing pin on case TLSR8251F512ET24
+#define PB0_INPUT_ENABLE	1
+#define PB0_DATA_OUT		1
+#define PB0_OUTPUT_ENABLE	1
+#define PB0_FUNC			AS_GPIO
+
+#define I2C_SCL 	GPIO_PC1
+#define I2C_SDA 	GPIO_PC0
+#define I2C_GROUP 	I2C_GPIO_GROUP_C0C1
+#define PULL_WAKEUP_SRC_PC0	PM_PIN_PULLUP_10K
+#define PULL_WAKEUP_SRC_PC1	PM_PIN_PULLUP_10K
+
+#define GPIO_KEY			GPIO_PD2
+#define PD2_INPUT_ENABLE	1
+#define PD2_DATA_OUT		0
+#define PD2_OUTPUT_ENABLE	0
+#define PD2_FUNC			AS_GPIO
+#define PULL_WAKEUP_SRC_PD2	PM_PIN_PULLUP_10K
+
+#define GPIO_LED			GPIO_PC3
+#define PC3_INPUT_ENABLE	1
+#define PC3_DATA_OUT		1
+#define PC3_OUTPUT_ENABLE	0
+#define PC3_FUNC			AS_GPIO
+#define PULL_WAKEUP_SRC_PC3	PM_PIN_PULLUP_10K
+
 #else // DEVICE_TYPE
 #error ("DEVICE_TYPE = ?")
 #endif // DEVICE_TYPE == ?
 
 #if UART_PRINT_DEBUG_ENABLE
-#define PRINT_BAUD_RATE 1500000 // real ~1000000
-#define DEBUG_INFO_TX_PIN	GPIO_PA7 // SWS
-#define PA7_DATA_OUT		1
-#define PA7_OUTPUT_ENABLE	1
-#define PULL_WAKEUP_SRC_PA7 PM_PIN_PULLUP_1M
-#define PA7_FUNC		AS_GPIO
+#define PRINT_BAUD_RATE 115200 // real ~1000000
+#define DEBUG_INFO_TX_PIN	GPIO_PB1 // SWS
+#define PB1_DATA_OUT		1
+#define PB1_OUTPUT_ENABLE	1
+#define PULL_WAKEUP_SRC_PB1 PM_PIN_PULLUP_1M
+#define PB1_FUNC		AS_GPIO
 #endif // UART_PRINT_DEBUG_ENABLE
 
 #define MODULE_WATCHDOG_ENABLE		0 //

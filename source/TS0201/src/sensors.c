@@ -27,6 +27,14 @@ RAM  thsensor_cfg_t thsensor;
 #define SHT30_LPMEASURE		0x1624 // Measurement commands, Clock Stretching Disabled, Low Power Mode, Read T First
 #define SHT30_LPMEASURE_CS	0x102C // Measurement commands, Clock Stretching, Low Power Mode, Read T First
 
+#define SHT4x_I2C_ADDR		0x44
+#define SHT4x_SOFT_RESET	0x94 // Soft reset command
+#define SHT4x_SOFT_RESET_us	900  // max 1 ms
+#define SHT4x_MEASURE_HI	0xFD // Measurement commands, Clock Stretching Disabled, Normal Mode, Read T First
+#define SHT4x_MEASURE_HI_us 7000 // 6.9..8.2 ms
+#define SHT4x_MEASURE_LO	0xE0 // Measurement commands, Clock Stretching Disabled, Low Power Mode, Read T First
+#define SHT4x_MEASURE_LO_us 1700 // 1.7 ms
+#define SHT4x_GET_ID		0x89 // read ID register
 //==================================== CHT8305
 
 //  I2C addres
@@ -89,6 +97,13 @@ const thsensor_coef_t def_thcoef_cht8305 = {
 		.humi_z = 0
 };
 
+const thsensor_coef_t def_thcoef_sht4x = {
+		.temp_k = 17500,
+		.temp_z = -4500,
+		.humi_k = 12500,
+		.humi_z = -600
+};
+
 static _attribute_ram_code_
 void send_sensor_word(uint16_t cmd) {
 	if ((reg_clk_en0 & FLD_CLK0_I2C_EN)==0)
@@ -112,44 +127,11 @@ static uint8_t sensor_crc(uint8_t crc) {
 }
 
 static void check_sensor(void) {
-	uint8_t buf[4];
-	int test_i2c_addr = CHT8305_I2C_ADDR << 1;
-	do {
-		if ((thsensor.i2c_addr = (uint8_t) scan_i2c_addr(test_i2c_addr)) != 0) {
-			if(thsensor.i2c_addr >= (CHT8305_I2C_ADDR << 1) && thsensor.i2c_addr <= (CHT8305_I2C_ADDR_MAX << 1)) {
-				read_i2c_byte_addr(thsensor.i2c_addr, CHT8305_REG_MID, buf, 2);
-				thsensor.id = (buf[0] << 24) | (buf[1] << 16);
-				read_i2c_byte_addr(thsensor.i2c_addr, CHT8305_REG_VID, buf, 2);
-				thsensor.id |= (buf[0] << 8) | buf[1];
-				// Soft reset command
-				buf[0] = CHT8305_REG_CFG;
-				buf[1] = (CHT8305_CFG_SOFT_RESET | CHT8305_CFG_CLOCK_STRETCH | CHT8305_CFG_MODE) >> 8;
-				buf[2] = (CHT8305_CFG_SOFT_RESET | CHT8305_CFG_CLOCK_STRETCH | CHT8305_CFG_MODE) & 0xff;
-				send_i2c_buf(thsensor.i2c_addr, buf, 3);
-				pm_wait_ms(SENSOR_RESET_TIMEOUT_ms);
-				// Configure
-				buf[0] = CHT8305_REG_CFG;
-				buf[1] = (CHT8305_CFG_CLOCK_STRETCH | CHT8305_CFG_MODE) >> 8;
-				buf[2] = (CHT8305_CFG_CLOCK_STRETCH | CHT8305_CFG_MODE) & 0xff;
-				send_i2c_buf(thsensor.i2c_addr, buf, 3);
-				pm_wait_ms(SENSOR_RESET_TIMEOUT_ms);
-
-				send_i2c_byte(thsensor.i2c_addr, CHT8305_REG_TMP); // start measure T/H
-				memcpy(&thsensor.coef, &def_thcoef_cht8305, sizeof(thsensor.coef));
-				pm_wait_ms(SENSOR_MEASURING_TIMEOUT_ms);
-				read_sensor();
-			} else if (thsensor.i2c_addr == (SHT30_I2C_ADDR_A<<1) || thsensor.i2c_addr == (SHT30_I2C_ADDR_B<<1)) {
-				thsensor.id = (0x30<<16) | thsensor.i2c_addr;
-				send_sensor_word(SHT30_SOFT_RESET); // Soft reset command
-				memcpy(&thsensor.coef, &def_thcoef_sht30, sizeof(thsensor.coef));
-				sleep_us(SHT30_SOFT_RESET_us);
-				send_sensor_word(SHT30_HIMEASURE); // start measure T/H
-			} else
-				thsensor.i2c_addr = 0;
-			break;
-		}
-		test_i2c_addr += 2;
-	} while(test_i2c_addr <= (SHT30_I2C_ADDR_B << 1));
+	thsensor.i2c_addr = SHT4x_I2C_ADDR << 1;
+	send_i2c_byte(thsensor.i2c_addr, SHT4x_SOFT_RESET);
+	memcpy(&thsensor.coef, &def_thcoef_sht4x, sizeof(thsensor.coef));
+	sleep_us(SHT4x_SOFT_RESET_us);
+	send_i2c_byte(thsensor.i2c_addr, SHT4x_MEASURE_LO); // start measure T/H
 }
 
 _attribute_ram_code_ __attribute__((optimize("-Os")))
@@ -249,14 +231,95 @@ static int read_sensor_sht30(void) {
 	return 0;
 }
 
+_attribute_ram_code_ __attribute__((optimize("-Os")))
+static int read_sensor_sht40(void) {
+	uint16_t _temp;
+	uint16_t _humi;
+	uint8_t data, crc; // calculated checksum
+	int i;
+	if ((reg_clk_en0 & FLD_CLK0_I2C_EN)==0)
+		init_i2c();
+	reg_i2c_id = thsensor.i2c_addr | FLD_I2C_WRITE_READ_BIT;
+	i = 256;
+	do {
+		reg_i2c_ctrl = FLD_I2C_CMD_ID | FLD_I2C_CMD_START;
+		while (reg_i2c_status & FLD_I2C_CMD_BUSY);
+		if (reg_i2c_status & FLD_I2C_NAK) {
+			reg_i2c_ctrl = FLD_I2C_CMD_STOP;
+			while (reg_i2c_status & FLD_I2C_CMD_BUSY);
+		} else { // ACK ok
+			reg_i2c_ctrl = FLD_I2C_CMD_DI | FLD_I2C_CMD_READ_ID;
+			while (reg_i2c_status & FLD_I2C_CMD_BUSY);
+			data = reg_i2c_di;
+			reg_i2c_ctrl = FLD_I2C_CMD_DI | FLD_I2C_CMD_READ_ID;
+			_temp = data << 8;
+			crc = sensor_crc(data ^ 0xff);
+			while (reg_i2c_status & FLD_I2C_CMD_BUSY);
+			data = reg_i2c_di;
+			reg_i2c_ctrl = FLD_I2C_CMD_DI | FLD_I2C_CMD_READ_ID;
+			_temp |= data;
+			crc = sensor_crc(crc ^ data);
+			while (reg_i2c_status & FLD_I2C_CMD_BUSY);
+			data = reg_i2c_di;
+#if 1	// use humi CRC
+			if (crc != data) {
+				reg_i2c_ctrl = FLD_I2C_CMD_STOP;
+				while (reg_i2c_status & FLD_I2C_CMD_BUSY);
+				continue;
+			}
+			reg_i2c_ctrl = FLD_I2C_CMD_DI | FLD_I2C_CMD_READ_ID;
+			while (reg_i2c_status & FLD_I2C_CMD_BUSY);
+			data = reg_i2c_di;
+			reg_i2c_ctrl = FLD_I2C_CMD_DI | FLD_I2C_CMD_READ_ID;
+			_humi = data << 8;
+			crc = sensor_crc(data ^ 0xff);
+			while (reg_i2c_status & FLD_I2C_CMD_BUSY);
+			data = reg_i2c_di;
+			reg_i2c_ctrl = FLD_I2C_CMD_DI | FLD_I2C_CMD_READ_ID | FLD_I2C_CMD_ACK;
+			_humi |= data;
+			crc = sensor_crc(crc ^ data);
+			while (reg_i2c_status & FLD_I2C_CMD_BUSY);
+			data = reg_i2c_di;
+			reg_i2c_ctrl = FLD_I2C_CMD_STOP;
+			while (reg_i2c_status & FLD_I2C_CMD_BUSY);
+			if (crc == data) {
+#else
+			reg_i2c_ctrl = FLD_I2C_CMD_DI | FLD_I2C_CMD_READ_ID;
+			while (reg_i2c_status & FLD_I2C_CMD_BUSY);
+			data = reg_i2c_di;
+			reg_i2c_ctrl = FLD_I2C_CMD_DI | FLD_I2C_CMD_READ_ID | FLD_I2C_CMD_ACK;
+				_humi = data << 8;
+			while (reg_i2c_status & FLD_I2C_CMD_BUSY);
+			_humi |= reg_i2c_di;
+			reg_i2c_ctrl = FLD_I2C_CMD_STOP;
+			while (reg_i2c_status & FLD_I2C_CMD_BUSY);
+			if (crc == data && _temp != 0xffff) {
+#endif
+				measured_data.temp = ((int32_t)(_temp * thsensor.coef.temp_k) >> 16) + thsensor.coef.temp_z; // x 0.01 C //17500 - 4500
+				measured_data.humi = ((uint32_t)(_humi * thsensor.coef.humi_k) >> 16) + thsensor.coef.humi_z; // x 0.01 %	   // 10000 -0
+				if (measured_data.humi < 0) measured_data.humi = 0;
+				else if (measured_data.humi > 9999) measured_data.humi = 9999;
+				send_i2c_byte(thsensor.i2c_addr, SHT4x_MEASURE_LO); // start measure T/H
+				sleep_us(SHT4x_MEASURE_LO_us);
+				// send_i2c_byte(thsensor.i2c_addr, SHT4x_MEASURE_HI); // start measure T/H
+				// sleep_us(SHT4x_MEASURE_HI_us);
+				return 1;
+			}
+		}
+	} while (i--);
+	return 0;
+}
 
 int read_sensor(void) {
 	if (thsensor.i2c_addr == 0)
 		check_sensor();
+	else if (thsensor.i2c_addr == (SHT4x_I2C_ADDR <<1))
+		return read_sensor_sht40();
 	else if (thsensor.i2c_addr >= (SHT30_I2C_ADDR_A<<1))
 		return read_sensor_sht30();
-	else
+	else {
 		return read_sensor_cht8305();
+	}
 	return 0;
 }
 

@@ -372,7 +372,7 @@ void main_loop(void) {
 				key.key_pressed = 1;
 				key.key_pressed_tik = new;
 				set_adv_con_time(0); // set connection adv.
-				gpio_setup_up_down_resistor(GPIO_LED, PM_PIN_PULLUP_10K);
+				gpio_setup_up_down_resistor(GPIO_LED, PM_PIN_PULLDOWN_100K);
 			} else {
 				if(new - key.key_pressed_tik > 15*CLOCK_16M_SYS_TIMER_CLK_1S) {
 					set_default_cfg();
@@ -381,7 +381,7 @@ void main_loop(void) {
 		} else {
 			 // key off
 			if(key.key_pressed)
-				gpio_setup_up_down_resistor(GPIO_LED, PM_PIN_PULLDOWN_100K);
+				gpio_setup_up_down_resistor(GPIO_LED, PM_PIN_PULLUP_10K);
 			key.key_pressed = 0;
 			key.key_pressed_tik = new;
 		}
